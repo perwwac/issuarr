@@ -186,15 +186,16 @@ def _has_file(i):
 
 
 def _in_dropdown(i):
-    """Match select: needs a file, and Skipped ones stay out (user left them aside)."""
-    return (not _has_file(i)) and (i.get('Status') or '') != 'Skipped'
+    """Match select: any issue/annual that does not already have a Downloaded file."""
+    return not _has_file(i)
 
 
 def files(comicid, issueid=None):
     """The series' files, each with the issue it counts as now and the issue number its name reads as,
-    and the unmapped issues/annuals to choose from in Match (already-matched and Skipped ones are
-    omitted so the browser never builds thousands of useless <option>s). Pass issueid when opening
-    Match a file so that one issue is included even if it already has a file."""
+    and the unmapped issues/annuals to choose from in Match (already-matched ones are omitted so the
+    browser never builds thousands of useless <option>s). Skipped issues/annuals stay in the list so
+    a hand match can still claim them. Pass issueid when opening Match a file so that one issue is
+    included even if it already has a file."""
     from mylar import attention
     comic = _comic(comicid)
     if comic is None:
@@ -225,7 +226,7 @@ def files(comicid, issueid=None):
                     'pinned': bool(i and i.get('forced_file')), 'annual': bool(i and i.get('annual')),
                     'reads_as': attention.parse(f['path']).get('issue')})
     out.sort(key=lambda f: (f['issueid'] is not None, (f['sub'] or '').lower(), f['name'].lower()))
-    # Select options: non-Skipped issues/annuals with no file yet (plus the focused issue for Match-a-file).
+    # Select options: issues/annuals with no file yet (plus the focused issue for Match-a-file).
     choices = [_issue_choice(i) for i in issues if _in_dropdown(i)]
     choices += [_issue_choice(i, annual=True) for i in annuals if _in_dropdown(i)]
     if issueid:
