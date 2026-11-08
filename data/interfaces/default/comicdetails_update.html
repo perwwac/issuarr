@@ -21,7 +21,10 @@
             <h2 id="match-title">Match files</h2>
             <p id="match-intro" class="match-intro"></p>
             <div id="match-body" class="match-body"></div>
-            <div class="match-actions"><button type="button" class="btn" data-close>Close</button></div>
+            <div class="match-actions">
+                <button type="button" class="btn btn-primary" data-batch-match hidden>Match</button>
+                <button type="button" class="btn" data-close>Close</button>
+            </div>
         </dialog>
         <input type="hidden" name="meta_enabled" id="meta_enabled" value="${mylar.CONFIG.ENABLE_META}" />
         <input type="hidden" name="meta_cbr2cbz" id="meta_cbr2cbz" value="${mylar.CONFIG.CBR2CBZ_ONLY}" />

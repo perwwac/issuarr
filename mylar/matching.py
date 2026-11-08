@@ -318,10 +318,11 @@ def _free_location(myDB, comicid, name, keep_issueid):
         )
 
 
-def match(comicid, issueid, name):
+def match(comicid, issueid, name, recount=True):
     """Make a file in the series folder count as this issue (or annual), whatever its name says. The
     match holds through later rechecks until it is undone or the file goes. No full series rescan:
-    pin the file, free any other issue that claimed the same name, refresh Have from the DB."""
+    pin the file, free any other issue that claimed the same name, refresh Have from the DB.
+    recount=False skips the Have update (batch match recounts once at the end)."""
     comic = _comic(comicid)
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
@@ -346,12 +347,54 @@ def match(comicid, issueid, name):
     )
     kind = 'annual ' if table == 'annuals' else ''
     logger.info('[MATCHING] %s is now %s#%s of %s, matched by hand.' % (name, kind, issue['Issue_Number'], comic['ComicName']))
-    _recount_have(comicid)
+    if recount:
+        _recount_have(comicid)
     if issue['Status'] not in ('Downloaded', 'Archived'):
         from mylar import notifiers
         notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]',
                               comicid=comicid, path=f['path'])
     return {'ok': True, 'note': '%s is now %s#%s.' % (name, kind, issue['Issue_Number'])}
+
+
+def match_batch(comicid, items):
+    """Match several files at once (Match files dialog). items: [{issueid, name?|path?}].
+    Rejects duplicate issueids. No forceRescan; Have is recounted once at the end."""
+    from mylar import unmatched
+    if not items:
+        return {'ok': False, 'matched': 0, 'skipped': 0, 'note': 'Nothing to match.'}
+    cleaned = []
+    for it in items:
+        issueid = str((it or {}).get('issueid') or '').strip()
+        name = (it or {}).get('name')
+        path = (it or {}).get('path')
+        if not issueid or not (name or path):
+            continue
+        cleaned.append({'issueid': issueid, 'name': name, 'path': path})
+    if not cleaned:
+        return {'ok': False, 'matched': 0, 'skipped': 0, 'note': 'Nothing to match.'}
+    ids = [c['issueid'] for c in cleaned]
+    if len(ids) != len(set(ids)):
+        return {'ok': False, 'matched': 0, 'skipped': 0,
+                'note': 'Two files point at the same issue. Fix the red rows first.'}
+    matched, failed = 0, []
+    for c in cleaned:
+        if c['path']:
+            res = unmatched.match_file(c['path'], comicid, c['issueid'], recount=False)
+        else:
+            res = match(comicid, c['issueid'], c['name'], recount=False)
+        if res.get('ok'):
+            matched += 1
+        else:
+            failed.append(res.get('note') or c.get('name') or c.get('path') or 'Failed')
+    if matched:
+        _recount_have(comicid)
+    if matched and not failed:
+        note = 'Matched %s file%s.' % (matched, '' if matched == 1 else 's')
+    elif matched:
+        note = 'Matched %s. %s couldn\'t be matched.' % (matched, len(failed))
+    else:
+        note = failed[0] if len(failed) == 1 else 'None of those could be matched.'
+    return {'ok': matched > 0, 'matched': matched, 'skipped': len(failed), 'note': note, 'failed': failed}
 
 
 def unmatch(comicid, issueid):

@@ -279,7 +279,7 @@ def _move(path, dest):
     return target
 
 
-def match_file(path, comicid, issueid):
+def match_file(path, comicid, issueid, recount=True):
     """Match one unmatched file to an issue by hand, moving it into the series' folder first
     when it sits elsewhere. The match holds through rechecks (see matching.match)."""
     from mylar import matching
@@ -301,7 +301,7 @@ def match_file(path, comicid, issueid):
     except OSError as e:
         logger.warn('[UNMATCHED] Could not move %s: %s' % (path, e))
         return {'ok': False, 'note': 'Couldn\'t move the file: %s' % e}
-    res = matching.match(comicid, issueid, os.path.basename(target))
+    res = matching.match(comicid, issueid, os.path.basename(target), recount=recount)
     forget()
     if p['move'] and res.get('ok'):
         res['note'] = 'Moved into %s. %s' % (p['dest'], res['note'])

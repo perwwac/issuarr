@@ -150,6 +150,30 @@ def test_a_hand_match_does_not_rescan_the_whole_series(series, monkeypatch):
 
 
 @pytest.mark.unit
+def test_match_batch_pins_several_files_and_rejects_duplicate_issues(series, monkeypatch):
+    updater.forceRescan('500')
+    # leave #3 and #4 without a name match: weird scan is tagged to 1003; Bar is free for 1004
+    os.remove(series / 'weird scan.cbz')
+    updater.forceRescan('500')
+    assert issue('1003')['Status'] != 'Downloaded' or issue('1003')['Location'] is None
+    # after removing tagged file, 1003/1004 need files — use Bar + a new file
+    comic_file(series / 'Foo Annual 001.cbz')
+    # duplicate issueids refused
+    bad = matching.match_batch('500', [
+        {'name': 'Bar 007.cbz', 'issueid': '1004'},
+        {'name': 'Foo Annual 001.cbz', 'issueid': '1004'},
+    ])
+    assert not bad['ok'] and bad['matched'] == 0
+    ok = matching.match_batch('500', [
+        {'name': 'Bar 007.cbz', 'issueid': '1004'},
+        {'name': 'Foo Annual 001.cbz', 'issueid': '1003'},
+    ])
+    assert ok['ok'] and ok['matched'] == 2
+    assert issue('1004')['Location'] == 'Bar 007.cbz' and issue('1004')['forced_file'] == 1
+    assert issue('1003')['Location'] == 'Foo Annual 001.cbz' and issue('1003')['forced_file'] == 1
+
+
+@pytest.mark.unit
 def test_undoing_a_match_goes_back_to_the_name(series):
     updater.forceRescan('500')
     matching.match('500', '1004', 'Foo 001 (2020).cbz')
