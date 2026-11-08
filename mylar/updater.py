@@ -1804,30 +1804,36 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module, comicid=ComicID)
 
     #if this far, forced_file is true and the file didn't parse properly due to w/e reason, we need to force the filename to link to the given issueid.
-    reforce = myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])
-    if reforce is not None:
-        for rfc in reforce:
-            logger.fdebug('%s [FORCED-MATCH] Matched...issue: %s #%s --- %s' % (module, rfc['ComicName'], rfc['Issue_Number'], rfc['Int_IssueNumber']))
-            havefiles+=1
-            logger.fdebug('%s .......filename: %s' % (module, rfc['Location']))
-            logger.fdebug('%s .......filesize: %s' % (module, rfc['ComicSize']))
+    reforce = [('issues', r) for r in myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])]
+    if mylar.CONFIG.ANNUALS_ON:
+        reforce += [('annuals', r) for r in myDB.select(
+            'SELECT * FROM annuals WHERE ComicID=? AND forced_file = 1 AND NOT Deleted', [ComicID])]
+    for table, rfc in reforce:
+        logger.fdebug('%s [FORCED-MATCH] Matched...%s: %s #%s --- %s' % (
+            module, 'annual' if table == 'annuals' else 'issue', rfc['ComicName'], rfc['Issue_Number'], rfc['Int_IssueNumber']))
+        havefiles+=1
+        logger.fdebug('%s .......filename: %s' % (module, rfc['Location']))
+        logger.fdebug('%s .......filesize: %s' % (module, rfc['ComicSize']))
 
-            controlValueDict = {"IssueID": rfc['IssueID']}
+        controlValueDict = {"IssueID": rfc['IssueID']}
 
-            #if Archived, increase the 'Have' count.
-            if archive:
-                issStatus = "Archived"
-            else:
-                issStatus = "Downloaded"
+        #if Archived, increase the 'Have' count.
+        if archive:
+            issStatus = "Archived"
+        else:
+            issStatus = "Downloaded"
 
+        if table == 'annuals':
+            annID_to_ignore.append(rfc['IssueID'])
+        else:
             issID_to_ignore.append(rfc['IssueID'])
 
-            newValueDict = {"Location":           rfc['Location'],
-                            "ComicSize":          rfc['ComicSize'],
-                            "Status":             issStatus
-                            }
+        newValueDict = {"Location":           rfc['Location'],
+                        "ComicSize":          rfc['ComicSize'],
+                        "Status":             issStatus
+                        }
 
-            myDB.upsert("issues", newValueDict, controlValueDict)
+        myDB.upsert(table, newValueDict, controlValueDict)
 
     #here we need to change the status of the ones we DIDN'T FIND above since the loop only hits on FOUND issues.
     update_iss = []
