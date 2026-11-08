@@ -61,7 +61,12 @@
   }
 
   function issueById(id) {
-    return (data.issues || []).filter(function (i) { return String(i.issueid) === String(id); })[0] || null;
+    if (id == null || id === '') return null;
+    var fromList = (data.issues || []).filter(function (i) { return String(i.issueid) === String(id); })[0];
+    if (fromList) return fromList;
+    // Already-matched issues are omitted from data.issues; rebuild from the file row.
+    var f = (data.files || []).filter(function (row) { return String(row.issueid) === String(id); })[0];
+    return f ? { issueid: f.issueid, number: f.number, name: f.issue_name, cover: f.cover, file: f.name, pinned: f.pinned } : null;
   }
   function fileName(f) {
     return (f.sub ? '<span class="faint">' + esc(f.sub) + '/</span>' : '') + esc(f.name);
@@ -76,7 +81,7 @@
   }
   function searchText(f) {
     var i = issueById(f.issueid);
-    return [f.name, f.sub, f.number, f.reads_as, i && i.name].join(' ').toLowerCase();
+    return [f.name, f.sub, f.number, f.reads_as, f.issue_name, i && i.name].join(' ').toLowerCase();
   }
 
   function searchBox(placeholder) {
@@ -110,7 +115,7 @@
                             '. If these files belong to it, use Wrong series… in the series menu.');
           }
           if (d.kind !== 'issue') return linkNote('That link is this series. Paste an issue link to match a file to that issue.');
-          if (!issueById(d.issueid)) return linkNote('#' + (d.number || '?') + ' isn\'t on this series here yet. Refresh the series to load it from ComicVine.');
+          // Match-a-file reloads with issueid so a mapped issue is still included server-side.
           state.issueid = d.issueid;
           state.q = '';
           load();
@@ -135,19 +140,28 @@
     if (none) none.hidden = shown > 0;
   }
 
-  function options(selected) {
-    return (selected ? '' : '<option value="" selected disabled>Choose an issue</option>') + data.issues.map(function (i) {
+  function options(selected, current) {
+    var found = false;
+    var html = (selected ? '' : '<option value="" selected disabled>Choose an issue</option>') + (data.issues || []).map(function (i) {
+      if (String(i.issueid) === String(selected)) found = true;
       return '<option value="' + esc(i.issueid) + '"' + (String(i.issueid) === String(selected) ? ' selected' : '') + '>#' +
         esc(i.number) + (i.name ? ' · ' + esc(i.name) : '') + '</option>';
     }).join('');
+    // Current match is not in the unmapped list: keep it as the selected option so the row still shows it.
+    if (selected && !found && current) {
+      html = '<option value="' + esc(selected) + '" selected>#' + esc(current.number) +
+        (current.name ? ' · ' + esc(current.name) : '') + '</option>' + html;
+    }
+    return html;
   }
 
   function seriesRow(f, n, kind) {
     var current = kind === 'waiting' ? null : f.issueid;
+    var issue = current ? issueById(current) : null;
     return '<li class="match-row' + (current ? '' : ' is-unmatched') + '" data-text="' + esc(searchText(f)) + '" data-kind="' + kind + '" data-n="' + n + '">' +
-      '<div class="match-covers">' + fileCover(f) + issueCover(issueById(f.issueid), f.issueid ? null : '') + '</div>' +
+      '<div class="match-covers">' + fileCover(f) + issueCover(issue, f.issueid ? null : '') + '</div>' +
       '<div class="match-file"><span class="match-name">' + fileName(f) + '</span><span class="match-meta">' + meta(f) + '</span>' +
-      '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid) + '</select>' +
+      '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid, issue) + '</select>' +
       '<button type="button" class="btn btn-sm btn-primary" data-match hidden>' + (kind === 'waiting' ? 'File as this issue' : 'Match') + '</button>' +
       (f.pinned ? '<button type="button" class="btn btn-sm btn-ghost" data-undo="' + esc(f.issueid) + '">Undo</button>' : '') +
       '</div></div></li>';
@@ -223,7 +237,9 @@
 
   function load() {
     busy(true);
-    return fetch('match_files?' + q({ comicid: state.comicid }), { credentials: 'same-origin', cache: 'no-store' })
+    var params = { comicid: state.comicid };
+    if (state.issueid) params.issueid = state.issueid;
+    return fetch('match_files?' + q(params), { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
         if (!d.ok) { intro.textContent = d.note || 'Couldn\'t list the files.'; body.innerHTML = ''; return; }
