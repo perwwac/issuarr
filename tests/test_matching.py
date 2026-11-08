@@ -105,8 +105,8 @@ def test_match_files_lists_only_unmapped_issues_for_the_select(series):
 
 
 @pytest.mark.unit
-def test_match_dropdown_skips_skipped_and_includes_annuals(series, monkeypatch):
-    """Select lists non-Skipped issues without a file, and the same for annuals when enabled."""
+def test_match_dropdown_includes_skipped_and_annuals(series, monkeypatch):
+    """Select lists issues/annuals without a file, including Skipped (hand match often targets those)."""
     monkeypatch.setattr(mylar.CONFIG, 'ANNUALS_ON', True, raising=False)
     d = db.DBConnection()
     d.action("UPDATE issues SET Status='Skipped' WHERE IssueID='1004'")
@@ -116,8 +116,8 @@ def test_match_dropdown_skips_skipped_and_includes_annuals(series, monkeypatch):
              "VALUES ('2002', '500', 'Foo', '2', 2000, '2021-01-01', 'Skipped', 0)")
     got = matching.files('500')
     ids = [i['issueid'] for i in got['issues']]
-    assert '1004' not in ids   # Skipped regular issue
-    assert '2002' not in ids   # Skipped annual
+    assert '1004' in ids   # Skipped regular issue still choosable
+    assert '2002' in ids   # Skipped annual still choosable
     assert '2001' in ids
     ann = next(i for i in got['issues'] if i['issueid'] == '2001')
     assert ann['annual'] is True
