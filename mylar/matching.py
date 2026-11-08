@@ -250,9 +250,36 @@ def _rescan(comicid):
     updater.forceRescan(comicid, module='[MATCHING]')
 
 
+def _recount_have(comicid):
+    """Have count from the DB only — used after a hand match so we skip a full folder rescan."""
+    from mylar import updater
+    myDB = db.DBConnection()
+    comic = myDB.selectone('SELECT Total FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    if comic is None:
+        return
+    have = myDB.selectone(
+        "SELECT COUNT(*) AS n FROM issues WHERE ComicID=? AND Status IN ('Downloaded','Archived')", [comicid]
+    ).fetchone()['n']
+    if mylar.CONFIG.ANNUALS_ON:
+        have += myDB.selectone(
+            "SELECT COUNT(*) AS n FROM annuals WHERE ComicID=? AND NOT Deleted AND Status IN ('Downloaded','Archived')",
+            [comicid],
+        ).fetchone()['n']
+    if mylar.CONFIG.IGNORE_HAVETOTAL:
+        have += myDB.selectone("SELECT COUNT(*) AS n FROM issues WHERE ComicID=? AND Status='Ignored'", [comicid]).fetchone()['n']
+        if mylar.CONFIG.ANNUALS_ON:
+            have += myDB.selectone(
+                "SELECT COUNT(*) AS n FROM annuals WHERE ComicID=? AND NOT Deleted AND Status='Ignored'", [comicid]
+            ).fetchone()['n']
+    if mylar.CONFIG.SNATCHED_HAVETOTAL:
+        have += myDB.selectone("SELECT COUNT(*) AS n FROM issues WHERE ComicID=? AND Status='Snatched'", [comicid]).fetchone()['n']
+    updater.totals(comicid, havefiles=int(have), totalfiles=int(comic['Total']), module='[MATCHING]')
+
+
 def match(comicid, issueid, name):
     """Make a file in the series folder count as this issue, whatever its name says. The match
-    holds through later rechecks until it is undone or the file goes."""
+    holds through later rechecks until it is undone or the file goes. No full series rescan:
+    pin the file, free any other issue that claimed the same name, refresh Have from the DB."""
     comic = _comic(comicid)
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
@@ -263,11 +290,17 @@ def match(comicid, issueid, name):
     f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None)
     if f is None:
         return {'ok': False, 'note': 'That file isn\'t in the series folder any more.'}
+    # Another issue that pointed at this filename no longer has a file.
+    myDB.action(
+        "UPDATE issues SET forced_file=0, Location=NULL, ComicSize=NULL, Status='Skipped' "
+        "WHERE ComicID=? AND Location=? AND IssueID!=? AND Status='Downloaded'",
+        [comicid, name, issueid],
+    )
     myDB.action('UPDATE issues SET forced_file=0 WHERE ComicID=? AND Location=? AND IssueID!=?', [comicid, name, issueid])
     myDB.action("UPDATE issues SET forced_file=1, Location=?, ComicSize=?, Status='Downloaded' WHERE IssueID=?",
                 [name, str(f['size']), issueid])
     logger.info('[MATCHING] %s is now #%s of %s, matched by hand.' % (name, issue['Issue_Number'], comic['ComicName']))
-    _rescan(comicid)
+    _recount_have(comicid)
     if issue['Status'] not in ('Downloaded', 'Archived'):
         from mylar import notifiers
         notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]',

@@ -114,6 +114,19 @@ def test_matching_a_file_to_another_issue_moves_it(series):
 
 
 @pytest.mark.unit
+def test_a_hand_match_does_not_rescan_the_whole_series(series, monkeypatch):
+    """Match pins the file in the DB; a full forceRescan was slow and redundant for that click."""
+    updater.forceRescan('500')
+    calls = []
+    monkeypatch.setattr(matching, '_rescan', lambda comicid: calls.append(comicid))
+    assert matching.match('500', '1004', 'Bar 007.cbz')['ok']
+    assert calls == []
+    assert issue('1004') == {'Status': 'Downloaded', 'Location': 'Bar 007.cbz', 'forced_file': 1}
+    have = db.DBConnection().selectone("SELECT Have FROM comics WHERE ComicID='500'").fetchone()['Have']
+    assert int(have) == 4
+
+
+@pytest.mark.unit
 def test_undoing_a_match_goes_back_to_the_name(series):
     updater.forceRescan('500')
     matching.match('500', '1004', 'Foo 001 (2020).cbz')
