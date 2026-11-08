@@ -25,15 +25,83 @@
     }
   }
 
+  function batchBtn() { return dlg && dlg.querySelector('[data-batch-match]'); }
+
+  function hideBatch() {
+    var b = batchBtn();
+    if (b) b.hidden = true;
+  }
+
   function busy(on) {
     body.classList.toggle('is-busy', on);
-    dlg.querySelectorAll('.match-body button, .match-body select').forEach(function (b) { b.disabled = on || b.hasAttribute('data-off'); });
+    dlg.querySelectorAll('.match-body button, .match-body select, .match-body input[type="checkbox"]').forEach(function (el) {
+      el.disabled = on || el.hasAttribute('data-off');
+    });
+    var b = batchBtn();
+    if (b && !b.hidden) b.disabled = on;
   }
 
   function run(url, params, label) {
     busy(true);
     intro.textContent = label;
     return post(url, params).then(function (d) {
+      window.Issuarr.toast(d.note || (d.ok ? 'Done.' : 'That didn\'t work.'), !!d.ok);
+      reloadTable();
+      load();
+    }).catch(function () {
+      window.Issuarr.toast('That didn\'t work. Check the log.', false);
+      busy(false);
+    });
+  }
+
+  /* Match files batch: checkbox rows + footer Match (hidden until ≥1 checked and no conflicts). */
+  function syncBatch() {
+    var btn = batchBtn();
+    if (!btn || !body || state.issueid || state.wrong) { hideBatch(); return; }
+    var counts = {}, conflict = false, n = 0;
+    body.querySelectorAll('.match-row[data-kind]').forEach(function (row) {
+      var pick = row.querySelector('[data-pick]');
+      var sel = row.querySelector('select');
+      var id = pick && pick.checked && sel && sel.value ? String(sel.value) : '';
+      row.classList.remove('is-conflict');
+      if (!id) return;
+      n += 1;
+      counts[id] = (counts[id] || 0) + 1;
+    });
+    Object.keys(counts).forEach(function (id) {
+      if (counts[id] < 2) return;
+      conflict = true;
+      body.querySelectorAll('.match-row[data-kind]').forEach(function (row) {
+        var pick = row.querySelector('[data-pick]');
+        var sel = row.querySelector('select');
+        if (pick && pick.checked && sel && String(sel.value) === id) row.classList.add('is-conflict');
+      });
+    });
+    btn.hidden = !(n > 0 && !conflict);
+    btn.disabled = false;
+    btn.textContent = n > 1 ? 'Match (' + n + ')' : 'Match';
+  }
+
+  function batchItems() {
+    var items = [];
+    body.querySelectorAll('.match-row[data-kind]').forEach(function (row) {
+      var pick = row.querySelector('[data-pick]');
+      var sel = row.querySelector('select');
+      if (!pick || !pick.checked || !sel || !sel.value) return;
+      var f = (row.getAttribute('data-kind') === 'waiting' ? data.waiting : data.files)[+row.getAttribute('data-n')];
+      if (!f) return;
+      if (f.path) items.push({ path: f.path, issueid: sel.value });
+      else items.push({ name: f.name, issueid: sel.value });
+    });
+    return items;
+  }
+
+  function runBatch() {
+    var items = batchItems();
+    if (!items.length) return;
+    busy(true);
+    intro.textContent = items.length === 1 ? 'Matching 1 file…' : 'Matching ' + items.length + ' files…';
+    return post('match_files_batch', { comicid: state.comicid, items: JSON.stringify(items) }).then(function (d) {
       window.Issuarr.toast(d.note || (d.ok ? 'Done.' : 'That didn\'t work.'), !!d.ok);
       reloadTable();
       load();
@@ -162,15 +230,15 @@
       '<div class="match-covers">' + fileCover(f) + issueCover(issue, f.issueid ? null : '') + '</div>' +
       '<div class="match-file"><span class="match-name">' + fileName(f) + '</span><span class="match-meta">' + meta(f) + '</span>' +
       '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid, issue) + '</select>' +
-      '<button type="button" class="btn btn-sm btn-primary" data-match hidden>' + (kind === 'waiting' ? 'File as this issue' : 'Match') + '</button>' +
       (f.pinned ? '<button type="button" class="btn btn-sm btn-ghost" data-undo="' + esc(f.issueid) + '">Undo</button>' : '') +
-      '</div></div></li>';
+      '</div></div>' +
+      '<label class="match-pick" title="Include in Match"><input type="checkbox" data-pick aria-label="Include ' + esc(f.name) + ' in Match" /></label></li>';
   }
 
   function seriesView() {
     title.textContent = 'Match files';
     intro.textContent = data.files.length || data.waiting.length
-      ? 'Compare each file\'s cover with the issue\'s cover from ComicVine, then pick the issue it is. A match you make here stays through rechecks until you undo it.'
+      ? 'Compare each file\'s cover with the issue\'s cover from ComicVine, pick the issue, and tick the rows to Match. A match stays through rechecks until you undo it.'
       : 'There are no comic files in the series folder, and nothing in Needs attention looks like this series.';
     var html = searchBox('Search by file name, issue number or title, or paste a ComicVine issue link');
     if (data.files.length) {
@@ -182,24 +250,24 @@
         data.waiting.map(function (f, n) { return seriesRow(f, n, 'waiting'); }).join('') + '</ul></section>';
     }
     body.innerHTML = html + '<p class="match-empty faint" hidden>Nothing matches that search.</p>';
-    body.querySelectorAll('.match-row').forEach(function (row) {
-      var f = (row.getAttribute('data-kind') === 'waiting' ? data.waiting : data.files)[+row.getAttribute('data-n')];
-      var sel = row.querySelector('select'), go = row.querySelector('[data-match]');
+    body.querySelectorAll('.match-row[data-kind]').forEach(function (row) {
+      var sel = row.querySelector('select'), pick = row.querySelector('[data-pick]');
       sel.addEventListener('change', function () {
         var i = issueById(sel.value);
         row.querySelector('[data-issue-cover]').outerHTML = issueCover(i);
-        go.hidden = !i || (!f.path && String(i.issueid) === String(f.issueid));
+        pick.checked = !!i;
+        syncBatch();
       });
-      go.addEventListener('click', function () {
-        var i = issueById(sel.value);
-        if (!i) return;
-        if (f.path) run('attention_file', { path: f.path, comicid: state.comicid, issueid: i.issueid }, 'Filing ' + f.name + ' as #' + i.number + '…');
-        else run('match_file', { comicid: state.comicid, issueid: i.issueid, name: f.name }, 'Matching ' + f.name + ' to #' + i.number + '…');
+      pick.addEventListener('change', function () {
+        if (pick.checked && !sel.value) pick.checked = false;
+        syncBatch();
       });
     });
+    syncBatch();
   }
 
   function issueView() {
+    hideBatch();
     var issue = issueById(state.issueid);
     if (!issue) {
       title.textContent = 'Match a file';
@@ -275,6 +343,7 @@
     clearTimeout(wrongTimer);
     clearTimeout(linkTimer);
     state = { comicid: comicid, issueid: issueid || null, q: '' };
+    hideBatch();
     title.textContent = issueid ? 'Match a file' : 'Match files';
     intro.textContent = 'Reading the series folder…';
     body.innerHTML = '';
@@ -295,6 +364,7 @@
     document.querySelectorAll('details.menu[open]').forEach(function (m) { m.open = false; });
     clearTimeout(wrongTimer);
     state = { comicid: comicid, name: name, label: name + (year ? ' (' + year + ')' : ''), wrong: true };
+    hideBatch();
     title.textContent = 'Wrong series';
     intro.textContent = 'Find the series these files belong to on ComicVine, or paste its ComicVine link. The files move to it and are matched to its issues.';
     body.innerHTML = '<form class="match-do" data-wrong-find><input type="search" class="match-search" aria-label="Series name or ComicVine link" placeholder="Series name or ComicVine link" value="' + esc(name) + '" />' +
@@ -425,6 +495,7 @@
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     if (e.target.closest('#match-dialog [data-close]')) document.getElementById('match-dialog').close();
+    if (e.target.closest('#match-dialog [data-batch-match]')) { runBatch(); return; }
     var zoom = e.target.closest('#match-dialog [data-zoom]');
     if (zoom) {
       var box = zoom.closest('.match-covers, .match-issue');

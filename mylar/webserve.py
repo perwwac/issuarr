@@ -5002,6 +5002,20 @@ class WebInterface(object):
         return self._attention_json(matching.match(comicid, issueid, name))
     match_file.exposed = True
 
+    def match_files_batch(self, comicid, items='[]'):
+        """Match several files from the Match files dialog (checkbox batch). items: JSON list."""
+        self._attention_post()
+        try:
+            if isinstance(items, bytes):
+                items = items.decode('utf-8')
+            parsed = json.loads(items) if isinstance(items, str) else (items or [])
+        except Exception:
+            parsed = []
+        if not isinstance(parsed, list):
+            parsed = []
+        return self._attention_json(matching.match_batch(comicid, parsed))
+    match_files_batch.exposed = True
+
     def match_undo(self, comicid, issueid):
         self._attention_post()
         return self._attention_json(matching.unmatch(comicid, issueid))
