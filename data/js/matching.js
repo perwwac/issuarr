@@ -144,12 +144,12 @@
     var found = false;
     var html = (selected ? '' : '<option value="" selected disabled>Choose an issue</option>') + (data.issues || []).map(function (i) {
       if (String(i.issueid) === String(selected)) found = true;
-      return '<option value="' + esc(i.issueid) + '"' + (String(i.issueid) === String(selected) ? ' selected' : '') + '>#' +
-        esc(i.number) + (i.name ? ' · ' + esc(i.name) : '') + '</option>';
+      return '<option value="' + esc(i.issueid) + '"' + (String(i.issueid) === String(selected) ? ' selected' : '') + '>' +
+        (i.annual ? 'Annual ' : '') + '#' + esc(i.number) + (i.name ? ' · ' + esc(i.name) : '') + '</option>';
     }).join('');
     // Current match is not in the unmapped list: keep it as the selected option so the row still shows it.
     if (selected && !found && current) {
-      html = '<option value="' + esc(selected) + '" selected>#' + esc(current.number) +
+      html = '<option value="' + esc(selected) + '" selected>' + (current.annual ? 'Annual ' : '') + '#' + esc(current.number) +
         (current.name ? ' · ' + esc(current.name) : '') + '</option>' + html;
     }
     return html;

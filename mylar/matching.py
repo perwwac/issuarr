@@ -91,15 +91,18 @@ def walk(dirs):
 
 
 def pins(comicid, dirs):
-    """The files matched by hand, by name, each with its issue. A match whose file is gone is dropped,
-    so the issue is matched by name again."""
+    """The files matched by hand, by name, each with its issue (or annual). A match whose file is gone
+    is dropped, so the issue is matched by name again."""
     myDB = db.DBConnection()
-    rows = myDB.select('SELECT IssueID, Location FROM issues WHERE ComicID=? AND forced_file=1', [comicid])
+    rows = [('issues', r) for r in myDB.select('SELECT IssueID, Location FROM issues WHERE ComicID=? AND forced_file=1', [comicid])]
+    if mylar.CONFIG.ANNUALS_ON:
+        rows += [('annuals', r) for r in myDB.select(
+            'SELECT IssueID, Location FROM annuals WHERE ComicID=? AND forced_file=1 AND NOT Deleted', [comicid])]
     if not rows:
         return {}
     found = {}
     names = None
-    for r in rows:
+    for table, r in rows:
         name = r['Location']
         here = name and any(os.path.isfile(os.path.join(d, name)) for d in dirs)
         if name and not here:
@@ -110,7 +113,7 @@ def pins(comicid, dirs):
             found[name] = r['IssueID']
         else:
             logger.info('[MATCHING] The file matched by hand to issue %s is gone - matching it by name again.' % r['IssueID'])
-            myDB.action('UPDATE issues SET forced_file=0 WHERE IssueID=?', [r['IssueID']])
+            myDB.action('UPDATE %s SET forced_file=0 WHERE IssueID=?' % table, [r['IssueID']])
     return found
 
 
@@ -166,14 +169,14 @@ def _comic(comicid):
     return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
 
 
-def _issue_choice(i, detail=False):
+def _issue_choice(i, detail=False, annual=False):
     """Slim issue fields for the Match dialog select (id + label + whether a cover exists).
     detail=True adds the fields Match-a-file needs for one focused issue."""
     out = {'issueid': i['IssueID'], 'number': i['Issue_Number'], 'name': i['IssueName'],
-           'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])}
+           'cover': bool(i.get('ImageURL') or i.get('ImageURL_ALT')), 'annual': bool(annual)}
     if detail:
         out['file'] = i['Location'] if i['Status'] == 'Downloaded' else None
-        out['pinned'] = bool(i['forced_file'])
+        out['pinned'] = bool(i.get('forced_file'))
     return out
 
 
@@ -182,34 +185,57 @@ def _has_file(i):
     return bool(i['Location'] and i['Status'] == 'Downloaded')
 
 
+def _in_dropdown(i):
+    """Match select: needs a file, and Skipped ones stay out (user left them aside)."""
+    return (not _has_file(i)) and (i.get('Status') or '') != 'Skipped'
+
+
 def files(comicid, issueid=None):
     """The series' files, each with the issue it counts as now and the issue number its name reads as,
-    and the unmapped issues to choose from in Match (already-matched issues are omitted so the
-    browser never builds thousands of useless <option>s). Pass issueid when opening Match a file
-    so that one issue is included even if it already has a file."""
+    and the unmapped issues/annuals to choose from in Match (already-matched and Skipped ones are
+    omitted so the browser never builds thousands of useless <option>s). Pass issueid when opening
+    Match a file so that one issue is included even if it already has a file."""
     from mylar import attention
     comic = _comic(comicid)
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issues = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT FROM issues '
-                                            'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
-    linked = {i['Location']: i for i in issues if _has_file(i)}
+    issues = [dict(r) for r in myDB.select(
+        'SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT, Int_IssueNumber FROM issues '
+        'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
+    annuals = []
+    if mylar.CONFIG.ANNUALS_ON:
+        annuals = [dict(r) for r in myDB.select(
+            'SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, Int_IssueNumber FROM annuals '
+            'WHERE ComicID=? AND NOT Deleted ORDER BY Int_IssueNumber', [comicid])]
+    linked = {}
+    for i in issues:
+        if _has_file(i):
+            linked[i['Location']] = dict(i, annual=False)
+    for i in annuals:
+        if _has_file(i):
+            linked[i['Location']] = dict(i, annual=True)
     out = []
     for f in walk(series_dirs(comic)):
         i = linked.get(f['name'])
         out.append({'name': f['name'], 'sub': f['sub'], 'size': f['size'],
                     'issueid': i['IssueID'] if i else None, 'number': i['Issue_Number'] if i else None,
                     'issue_name': i['IssueName'] if i else None,
-                    'cover': bool(i['ImageURL'] or i['ImageURL_ALT']) if i else False,
-                    'pinned': bool(i and i['forced_file']), 'reads_as': attention.parse(f['path']).get('issue')})
+                    'cover': bool(i.get('ImageURL') or i.get('ImageURL_ALT')) if i else False,
+                    'pinned': bool(i and i.get('forced_file')), 'annual': bool(i and i.get('annual')),
+                    'reads_as': attention.parse(f['path']).get('issue')})
     out.sort(key=lambda f: (f['issueid'] is not None, (f['sub'] or '').lower(), f['name'].lower()))
-    # Select options: only issues with no file yet (plus the focused issue for Match-a-file).
-    choices = [_issue_choice(i) for i in issues if not _has_file(i)]
+    # Select options: non-Skipped issues/annuals with no file yet (plus the focused issue for Match-a-file).
+    choices = [_issue_choice(i) for i in issues if _in_dropdown(i)]
+    choices += [_issue_choice(i, annual=True) for i in annuals if _in_dropdown(i)]
     if issueid:
         focused = next((i for i in issues if str(i['IssueID']) == str(issueid)), None)
+        annual = False
+        if focused is None:
+            focused = next((i for i in annuals if str(i['IssueID']) == str(issueid)), None)
+            annual = focused is not None
         if focused is not None:
-            detail = _issue_choice(focused, detail=True)
+            detail = _issue_choice(focused, detail=True, annual=annual)
             choices = [detail if str(c['issueid']) == str(issueid) else c for c in choices]
             if not any(str(c['issueid']) == str(issueid) for c in choices):
                 choices = [detail] + choices
@@ -276,46 +302,72 @@ def _recount_have(comicid):
     updater.totals(comicid, havefiles=int(have), totalfiles=int(comic['Total']), module='[MATCHING]')
 
 
+def _free_location(myDB, comicid, name, keep_issueid):
+    """Any other issue/annual that pointed at this filename no longer has a file."""
+    for table in ('issues', 'annuals'):
+        deleted = ' AND NOT Deleted' if table == 'annuals' else ''
+        myDB.action(
+            "UPDATE %s SET forced_file=0, Location=NULL, ComicSize=NULL, Status='Skipped' "
+            "WHERE ComicID=? AND Location=? AND IssueID!=? AND Status='Downloaded'%s" % (table, deleted),
+            [comicid, name, keep_issueid],
+        )
+        myDB.action(
+            'UPDATE %s SET forced_file=0 WHERE ComicID=? AND Location=? AND IssueID!=?%s' % (table, deleted),
+            [comicid, name, keep_issueid],
+        )
+
+
 def match(comicid, issueid, name):
-    """Make a file in the series folder count as this issue, whatever its name says. The match
-    holds through later rechecks until it is undone or the file goes. No full series rescan:
+    """Make a file in the series folder count as this issue (or annual), whatever its name says. The
+    match holds through later rechecks until it is undone or the file goes. No full series rescan:
     pin the file, free any other issue that claimed the same name, refresh Have from the DB."""
     comic = _comic(comicid)
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
+    table = 'issues'
     issue = myDB.selectone('SELECT IssueID, Issue_Number, Status FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    if issue is None and mylar.CONFIG.ANNUALS_ON:
+        issue = myDB.selectone(
+            'SELECT IssueID, Issue_Number, Status FROM annuals WHERE IssueID=? AND ComicID=? AND NOT Deleted',
+            [issueid, comicid],
+        ).fetchone()
+        table = 'annuals'
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None)
     if f is None:
         return {'ok': False, 'note': 'That file isn\'t in the series folder any more.'}
-    # Another issue that pointed at this filename no longer has a file.
+    _free_location(myDB, comicid, name, issueid)
     myDB.action(
-        "UPDATE issues SET forced_file=0, Location=NULL, ComicSize=NULL, Status='Skipped' "
-        "WHERE ComicID=? AND Location=? AND IssueID!=? AND Status='Downloaded'",
-        [comicid, name, issueid],
+        "UPDATE %s SET forced_file=1, Location=?, ComicSize=?, Status='Downloaded' WHERE IssueID=?" % table,
+        [name, str(f['size']), issueid],
     )
-    myDB.action('UPDATE issues SET forced_file=0 WHERE ComicID=? AND Location=? AND IssueID!=?', [comicid, name, issueid])
-    myDB.action("UPDATE issues SET forced_file=1, Location=?, ComicSize=?, Status='Downloaded' WHERE IssueID=?",
-                [name, str(f['size']), issueid])
-    logger.info('[MATCHING] %s is now #%s of %s, matched by hand.' % (name, issue['Issue_Number'], comic['ComicName']))
+    kind = 'annual ' if table == 'annuals' else ''
+    logger.info('[MATCHING] %s is now %s#%s of %s, matched by hand.' % (name, kind, issue['Issue_Number'], comic['ComicName']))
     _recount_have(comicid)
     if issue['Status'] not in ('Downloaded', 'Archived'):
         from mylar import notifiers
         notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]',
                               comicid=comicid, path=f['path'])
-    return {'ok': True, 'note': '%s is now #%s.' % (name, issue['Issue_Number'])}
+    return {'ok': True, 'note': '%s is now %s#%s.' % (name, kind, issue['Issue_Number'])}
 
 
 def unmatch(comicid, issueid):
     """Undo a match made by hand: the file is matched by its name again."""
     myDB = db.DBConnection()
+    table = 'issues'
     issue = myDB.selectone('SELECT Issue_Number, forced_file FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    if issue is None and mylar.CONFIG.ANNUALS_ON:
+        issue = myDB.selectone(
+            'SELECT Issue_Number, forced_file FROM annuals WHERE IssueID=? AND ComicID=? AND NOT Deleted',
+            [issueid, comicid],
+        ).fetchone()
+        table = 'annuals'
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     if issue['forced_file']:
-        myDB.action('UPDATE issues SET forced_file=0 WHERE IssueID=?', [issueid])
+        myDB.action('UPDATE %s SET forced_file=0 WHERE IssueID=?' % table, [issueid])
         logger.info('[MATCHING] Undid the match made by hand for issue %s.' % issueid)
         _rescan(comicid)
     return {'ok': True, 'note': '#%s is matched by file name again.' % issue['Issue_Number']}

@@ -92,7 +92,8 @@ def test_match_files_lists_only_unmapped_issues_for_the_select(series):
     updater.forceRescan('500')
     got = matching.files('500')
     assert [i['issueid'] for i in got['issues']] == ['1004']
-    assert set(got['issues'][0]) == {'issueid', 'number', 'name', 'cover'}
+    assert set(got['issues'][0]) == {'issueid', 'number', 'name', 'cover', 'annual'}
+    assert got['issues'][0]['annual'] is False
     matched = next(f for f in got['files'] if f['name'] == 'Foo 001 (2020).cbz')
     assert matched['issueid'] == '1001' and 'issue_name' in matched and 'cover' in matched
     # Match-a-file still needs the focused issue even when it already has a file
@@ -101,6 +102,28 @@ def test_match_files_lists_only_unmapped_issues_for_the_select(series):
     assert ids[0] == '1001' and '1004' in ids
     detail = next(i for i in focused['issues'] if str(i['issueid']) == '1001')
     assert detail['file'] == 'Foo 001 (2020).cbz' and detail['pinned'] is False
+
+
+@pytest.mark.unit
+def test_match_dropdown_skips_skipped_and_includes_annuals(series, monkeypatch):
+    """Select lists non-Skipped issues without a file, and the same for annuals when enabled."""
+    monkeypatch.setattr(mylar.CONFIG, 'ANNUALS_ON', True, raising=False)
+    d = db.DBConnection()
+    d.action("UPDATE issues SET Status='Skipped' WHERE IssueID='1004'")
+    d.action("INSERT INTO annuals (IssueID, ComicID, ComicName, Issue_Number, Int_IssueNumber, IssueDate, Status, Deleted) "
+             "VALUES ('2001', '500', 'Foo', '1', 1000, '2020-01-01', 'Wanted', 0)")
+    d.action("INSERT INTO annuals (IssueID, ComicID, ComicName, Issue_Number, Int_IssueNumber, IssueDate, Status, Deleted) "
+             "VALUES ('2002', '500', 'Foo', '2', 2000, '2021-01-01', 'Skipped', 0)")
+    got = matching.files('500')
+    ids = [i['issueid'] for i in got['issues']]
+    assert '1004' not in ids   # Skipped regular issue
+    assert '2002' not in ids   # Skipped annual
+    assert '2001' in ids
+    ann = next(i for i in got['issues'] if i['issueid'] == '2001')
+    assert ann['annual'] is True
+    assert matching.match('500', '2001', 'Bar 007.cbz')['ok']
+    row = dict(d.selectone("SELECT Status, Location, forced_file FROM annuals WHERE IssueID='2001'").fetchone())
+    assert row == {'Status': 'Downloaded', 'Location': 'Bar 007.cbz', 'forced_file': 1}
 
 
 @pytest.mark.unit
