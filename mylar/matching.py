@@ -166,9 +166,27 @@ def _comic(comicid):
     return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
 
 
-def files(comicid):
+def _issue_choice(i, detail=False):
+    """Slim issue fields for the Match dialog select (id + label + whether a cover exists).
+    detail=True adds the fields Match-a-file needs for one focused issue."""
+    out = {'issueid': i['IssueID'], 'number': i['Issue_Number'], 'name': i['IssueName'],
+           'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])}
+    if detail:
+        out['file'] = i['Location'] if i['Status'] == 'Downloaded' else None
+        out['pinned'] = bool(i['forced_file'])
+    return out
+
+
+def _has_file(i):
+    """Archived issues keep the name of a file that has gone, so only Downloaded ones count as matched."""
+    return bool(i['Location'] and i['Status'] == 'Downloaded')
+
+
+def files(comicid, issueid=None):
     """The series' files, each with the issue it counts as now and the issue number its name reads as,
-    and the series' issues to choose from."""
+    and the unmapped issues to choose from in Match (already-matched issues are omitted so the
+    browser never builds thousands of useless <option>s). Pass issueid when opening Match a file
+    so that one issue is included even if it already has a file."""
     from mylar import attention
     comic = _comic(comicid)
     if comic is None:
@@ -176,19 +194,27 @@ def files(comicid):
     myDB = db.DBConnection()
     issues = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT FROM issues '
                                             'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
-    # Archived issues keep the name of a file that has gone, so only Downloaded ones count as having one
-    linked = {i['Location']: i for i in issues if i['Location'] and i['Status'] == 'Downloaded'}
+    linked = {i['Location']: i for i in issues if _has_file(i)}
     out = []
     for f in walk(series_dirs(comic)):
         i = linked.get(f['name'])
         out.append({'name': f['name'], 'sub': f['sub'], 'size': f['size'],
                     'issueid': i['IssueID'] if i else None, 'number': i['Issue_Number'] if i else None,
+                    'issue_name': i['IssueName'] if i else None,
+                    'cover': bool(i['ImageURL'] or i['ImageURL_ALT']) if i else False,
                     'pinned': bool(i and i['forced_file']), 'reads_as': attention.parse(f['path']).get('issue')})
     out.sort(key=lambda f: (f['issueid'] is not None, (f['sub'] or '').lower(), f['name'].lower()))
+    # Select options: only issues with no file yet (plus the focused issue for Match-a-file).
+    choices = [_issue_choice(i) for i in issues if not _has_file(i)]
+    if issueid:
+        focused = next((i for i in issues if str(i['IssueID']) == str(issueid)), None)
+        if focused is not None:
+            detail = _issue_choice(focused, detail=True)
+            choices = [detail if str(c['issueid']) == str(issueid) else c for c in choices]
+            if not any(str(c['issueid']) == str(issueid) for c in choices):
+                choices = [detail] + choices
     return {'ok': True, 'folder': comic['ComicLocation'], 'files': out, 'waiting': waiting(comicid),
-            'issues': [{'issueid': i['IssueID'], 'number': i['Issue_Number'], 'name': i['IssueName'], 'status': i['Status'],
-                        'file': i['Location'] if i['Status'] == 'Downloaded' else None,
-                        'pinned': bool(i['forced_file']), 'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])} for i in issues]}
+            'issues': choices}
 
 
 def waiting(comicid):

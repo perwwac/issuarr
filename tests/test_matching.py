@@ -87,6 +87,23 @@ def test_a_file_matched_by_hand_stays_matched_through_a_recheck(series):
 
 
 @pytest.mark.unit
+def test_match_files_lists_only_unmapped_issues_for_the_select(series):
+    """Match dialog options are unmapped issues only (slim fields), so large series don't OOM the browser."""
+    updater.forceRescan('500')
+    got = matching.files('500')
+    assert [i['issueid'] for i in got['issues']] == ['1004']
+    assert set(got['issues'][0]) == {'issueid', 'number', 'name', 'cover'}
+    matched = next(f for f in got['files'] if f['name'] == 'Foo 001 (2020).cbz')
+    assert matched['issueid'] == '1001' and 'issue_name' in matched and 'cover' in matched
+    # Match-a-file still needs the focused issue even when it already has a file
+    focused = matching.files('500', issueid='1001')
+    ids = [str(i['issueid']) for i in focused['issues']]
+    assert ids[0] == '1001' and '1004' in ids
+    detail = next(i for i in focused['issues'] if str(i['issueid']) == '1001')
+    assert detail['file'] == 'Foo 001 (2020).cbz' and detail['pinned'] is False
+
+
+@pytest.mark.unit
 def test_matching_a_file_to_another_issue_moves_it(series):
     updater.forceRescan('500')
     assert matching.match('500', '1003', 'Foo 002 (2020).cbz')['ok']

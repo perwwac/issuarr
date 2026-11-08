@@ -4989,8 +4989,8 @@ class WebInterface(object):
         return self._attention_json(want_from.set_from(comicid, number))
     want_from_set.exposed = True
 
-    def match_files(self, comicid):
-        return self._attention_json(matching.files(comicid))
+    def match_files(self, comicid, issueid=None):
+        return self._attention_json(matching.files(comicid, issueid=issueid or None))
     match_files.exposed = True
 
     def match_cover(self, comicid, name, r=None):   # r: a retry after the server was busy
