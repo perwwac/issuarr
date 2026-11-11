@@ -110,7 +110,7 @@
                                            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-haspopup="listbox"
                                            aria-label="ComicVine ID for ${x['name'] | h}"
                                            placeholder="ID or search…"
-                                           title="Type a ComicVine ID, or 2+ letters to pick a series from your watchlist"
+                                           title="Type a ComicVine ID or link, or 2+ characters to pick a series from your watchlist. Press Enter to import."
                                            value="${(('4050-' + str(r['ComicID'])) if r['ComicID'] else '') | h}"
                                            data-cv-params="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
                                            data-title="${x['name'] | h}" />
@@ -168,9 +168,9 @@
                 <input type="text" id="imp-cvid-input" class="mono imp-cv-input" autocomplete="off" spellcheck="false"
                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-haspopup="listbox"
                        placeholder="https://comicvine.gamespot.com/invincible/4050-39340/" style="width: 100%"
-                       title="Paste a ComicVine ID or link, or type 2+ letters to pick a series from your watchlist" />
+                       title="Paste a ComicVine ID or link, or type 2+ characters to pick a series from your watchlist" />
             </div>
-            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. Type 2+ letters to pick a series already on your watchlist. The series is added and its files are moved and renamed like any other import.</p>
+            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. Type 2+ characters to pick a series already on your watchlist, then Import. The series is added and its files are moved and renamed like any other import.</p>
             <p class="set-warn" id="imp-cvid-note" hidden></p>
             <button type="submit" class="btn btn-primary">Import</button>
         </form>
@@ -316,7 +316,8 @@
             }, function (d) { note.textContent = d.note; note.hidden = false; });
         });
 
-        /* ComicVine field: type-to-filter watchlist series (id | name | year), ≥2 characters. */
+        /* ComicVine field: type-to-filter watchlist series (id | name | year), ≥2 characters (any).
+           Picking a row only fills the field — Import / Enter starts the import. */
         (function setupCvPick() {
             var drop = document.getElementById('imp-cv-drop');
             var activeInput = null;
@@ -393,6 +394,7 @@
             function fetchRows() {
                 if (!activeInput) return;
                 var q = activeInput.value.trim();
+                // 2+ characters of any kind (digits, punctuation, letters…) — not letters-only
                 if (q.length < 2 || looksLikeId(q)) { clearDrop(); return; }
                 var want = q.toLowerCase();
                 fetch('jump_series?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
@@ -408,15 +410,11 @@
                 if (!s || !activeInput) return;
                 var id = '4050-' + s.id;
                 var input = activeInput;
-                var auto = input.hasAttribute('data-cv-params');
                 input.value = id;
                 hide();
-                if (!auto) { input.focus(); return; }
-                input.disabled = true;
-                importByCvid(input.getAttribute('data-cv-params'), id, input.getAttribute('data-title'), null, function (d) {
-                    input.disabled = false;
-                    Issuarr.toast(d.note || 'That ComicVine ID didn\'t work.', false);
-                });
+                activeInput = input;
+                input.focus();
+                // Fill only — do not start import until Enter (inline) or Import (dialog).
             }
             function onInput(input) {
                 activeInput = input;
