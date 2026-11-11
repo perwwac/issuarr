@@ -398,23 +398,32 @@ def match_batch(comicid, items):
 
 
 def unmatch(comicid, issueid):
-    """Undo a match made by hand: the file is matched by its name again."""
+    """Free an issue so Match can assign another file to it. Clears Location / hand-pin without a
+    folder rescan (a rescan would rematch the same file by name and take the issue again)."""
     myDB = db.DBConnection()
     table = 'issues'
-    issue = myDB.selectone('SELECT Issue_Number, forced_file FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    issue = myDB.selectone(
+        'SELECT Issue_Number, Location, Status, forced_file FROM issues WHERE IssueID=? AND ComicID=?',
+        [issueid, comicid],
+    ).fetchone()
     if issue is None and mylar.CONFIG.ANNUALS_ON:
         issue = myDB.selectone(
-            'SELECT Issue_Number, forced_file FROM annuals WHERE IssueID=? AND ComicID=? AND NOT Deleted',
+            'SELECT Issue_Number, Location, Status, forced_file FROM annuals WHERE IssueID=? AND ComicID=? AND NOT Deleted',
             [issueid, comicid],
         ).fetchone()
         table = 'annuals'
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
-    if issue['forced_file']:
-        myDB.action('UPDATE %s SET forced_file=0 WHERE IssueID=?' % table, [issueid])
-        logger.info('[MATCHING] Undid the match made by hand for issue %s.' % issueid)
-        _rescan(comicid)
-    return {'ok': True, 'note': '#%s is matched by file name again.' % issue['Issue_Number']}
+    if not _has_file(issue) and not issue['forced_file']:
+        return {'ok': True, 'note': '#%s is already free to match.' % issue['Issue_Number']}
+    myDB.action(
+        "UPDATE %s SET forced_file=0, Location=NULL, ComicSize=NULL, Status='Skipped' WHERE IssueID=?" % table,
+        [issueid],
+    )
+    kind = 'annual ' if table == 'annuals' else ''
+    logger.info('[MATCHING] Freed %s#%s of series %s for a new match (no rescan).' % (kind, issue['Issue_Number'], comicid))
+    _recount_have(comicid)
+    return {'ok': True, 'note': '#%s is free to match again.' % issue['Issue_Number']}
 
 
 def move_to(comicid, newid):

@@ -230,7 +230,7 @@
       '<div class="match-covers">' + fileCover(f) + issueCover(issue, f.issueid ? null : '') + '</div>' +
       '<div class="match-file"><span class="match-name">' + fileName(f) + '</span><span class="match-meta">' + meta(f) + '</span>' +
       '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid, issue) + '</select>' +
-      (f.pinned ? '<button type="button" class="btn btn-sm btn-ghost" data-undo="' + esc(f.issueid) + '">Undo</button>' : '') +
+      (f.issueid ? '<button type="button" class="btn btn-sm btn-ghost" data-undo="' + esc(f.issueid) + '" title="Clear this match so the issue can be matched to another file">Unmatch</button>' : '') +
       '</div></div>' +
       '<label class="match-pick" title="Include in Match"><input type="checkbox" data-pick aria-label="Include ' + esc(f.name) + ' in Match" /></label></li>';
   }
@@ -238,7 +238,7 @@
   function seriesView() {
     title.textContent = 'Match files';
     intro.textContent = data.files.length || data.waiting.length
-      ? 'Compare each file\'s cover with the issue\'s cover from ComicVine, pick the issue, and tick the rows to Match. A match stays through rechecks until you undo it.'
+      ? 'Compare each file\'s cover with the issue\'s cover from ComicVine, pick the issue, and tick the rows to Match. Unmatch frees an issue so you can match another file to it (no folder rescan).'
       : 'There are no comic files in the series folder, and nothing in Needs attention looks like this series.';
     var html = searchBox('Search by file name, issue number or title, or paste a ComicVine issue link');
     if (data.files.length) {
@@ -283,8 +283,9 @@
       (issue.file ? 'Now ' + esc(issue.file) + (issue.pinned ? ' <span class="match-hand">matched by hand</span>' : '') + '.' : 'No file is matched to it yet.');
     body.innerHTML = '<div class="match-issue">' + issueCover(issue, '#' + issue.number + (issue.name ? ' · ' + issue.name : '')) +
       '<div class="match-issue-side">' + searchBox('Search files by name or number, or paste a ComicVine issue link') +
-      (issue.pinned ? '<p class="match-undo"><button type="button" class="btn btn-sm" data-undo="' + esc(issue.issueid) + '">Match by file name again</button></p>' : '') +
+      (issue.file ? '<p class="match-undo"><button type="button" class="btn btn-sm" data-undo="' + esc(issue.issueid) + '" title="Clear this match so the issue can be matched to another file">Unmatch</button></p>' : '') +
       '</div></div>' +
+
       (files.length ? '' : '<p class="faint">There are no comic files in the series folder, and nothing in Needs attention looks like this series.</p>') +
       '<ul class="match-list">' + files.map(function (f, n) {
         var here = !f.path && String(f.issueid) === String(issue.issueid);
@@ -316,7 +317,7 @@
         if (state.issueid) issueView(); else seriesView();
         body.querySelectorAll('[data-undo]').forEach(function (b) {
           b.addEventListener('click', function () {
-            run('match_undo', { comicid: state.comicid, issueid: b.getAttribute('data-undo') }, 'Undoing the match…');
+            run('match_undo', { comicid: state.comicid, issueid: b.getAttribute('data-undo') }, 'Freeing the issue…');
           });
         });
         var box = body.querySelector('.match-search');

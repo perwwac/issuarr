@@ -174,13 +174,21 @@ def test_match_batch_pins_several_files_and_rejects_duplicate_issues(series, mon
 
 
 @pytest.mark.unit
-def test_undoing_a_match_goes_back_to_the_name(series):
+def test_unmatch_frees_the_issue_without_a_rescan(series, monkeypatch):
+    """Unmatch clears Location so the issue is back in the Match dropdown; no forceRescan."""
     updater.forceRescan('500')
-    matching.match('500', '1004', 'Foo 001 (2020).cbz')
-    assert issue('1004')['Location'] == 'Foo 001 (2020).cbz'
-    assert matching.unmatch('500', '1004')['ok']
-    assert issue('1004')['forced_file'] == 0
-    assert issue('1001')['Location'] == 'Foo 001 (2020).cbz' and issue('1001')['Status'] == 'Downloaded'
+    matching.match('500', '1004', 'Bar 007.cbz')
+    assert issue('1004')['Location'] == 'Bar 007.cbz'
+    called = []
+    monkeypatch.setattr(matching, '_rescan', lambda comicid: called.append(comicid))
+    r = matching.unmatch('500', '1004')
+    assert r['ok'] and 'free' in r['note'].lower()
+    assert called == []
+    assert issue('1004') == {'Status': 'Skipped', 'Location': None, 'forced_file': 0}
+    listed = matching.files('500')
+    assert '1004' in [i['issueid'] for i in listed['issues']]
+    bar = next(f for f in listed['files'] if f['name'] == 'Bar 007.cbz')
+    assert bar['issueid'] is None
 
 
 @pytest.mark.unit
