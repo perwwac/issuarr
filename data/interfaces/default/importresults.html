@@ -104,7 +104,18 @@
                                 %endif
                             </td>
                             <td class="mono nowrap">
-                                %if r['ComicID']:
+                                %if x['status'] not in ('Imported', 'Importing', 'No Issue'):
+                                <div class="imp-cv-field">
+                                    <input type="text" class="imp-cv-input mono" autocomplete="off" spellcheck="false"
+                                           role="combobox" aria-autocomplete="list" aria-expanded="false" aria-haspopup="listbox"
+                                           aria-label="ComicVine ID for ${x['name'] | h}"
+                                           placeholder="ID or search…"
+                                           title="Type a ComicVine ID, or 2+ letters to pick a series from your watchlist"
+                                           value="${(('4050-' + str(r['ComicID'])) if r['ComicID'] else '') | h}"
+                                           data-cv-params="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
+                                           data-title="${x['name'] | h}" />
+                                </div>
+                                %elif r['ComicID']:
                                 <a class="imp-cvid" href="https://comicvine.gamespot.com/volume/4050-${r['ComicID'] | u}/" target="_blank" rel="noopener" title="Open on ComicVine">4050-${r['ComicID'] | h}</a>
                                 %else:
                                 <span class="muted">-</span>
@@ -153,12 +164,18 @@
     <div id="imp-cvid" title="ComicVine ID" style="display:none">
         <form id="imp-cvid-form">
             <label for="imp-cvid-input">ComicVine ID or link</label>
-            <input type="text" id="imp-cvid-input" class="mono" autocomplete="off" placeholder="https://comicvine.gamespot.com/invincible/4050-39340/" style="width: 100%" />
-            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. The series is added and its files are moved and renamed like any other import.</p>
+            <div class="imp-cv-field imp-cv-field-dialog">
+                <input type="text" id="imp-cvid-input" class="mono imp-cv-input" autocomplete="off" spellcheck="false"
+                       role="combobox" aria-autocomplete="list" aria-expanded="false" aria-haspopup="listbox"
+                       placeholder="https://comicvine.gamespot.com/invincible/4050-39340/" style="width: 100%"
+                       title="Paste a ComicVine ID or link, or type 2+ letters to pick a series from your watchlist" />
+            </div>
+            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. Type 2+ letters to pick a series already on your watchlist. The series is added and its files are moved and renamed like any other import.</p>
             <p class="set-warn" id="imp-cvid-note" hidden></p>
             <button type="submit" class="btn btn-primary">Import</button>
         </form>
     </div>
+    <div id="imp-cv-drop" class="imp-cv-drop" hidden role="listbox" aria-label="Watchlist series"></div>
     <div id="imp-files" title="Files" style="display:none"><p class="muted" id="imp-files-count"></p><ul class="imp-file-list" id="imp-file-list"></ul></div>
     <dialog id="choose-dialog" class="match-dialog choose-dialog" aria-labelledby="choose-title">
         <div class="choose-top">
@@ -277,21 +294,176 @@
             }
         });
         var cvidFor = null;
+        function importByCvid(params, cvid, title, onOk, onFail) {
+            var body = new URLSearchParams(params);
+            body.set('cvid', cvid);
+            return fetch('importByCvid', { method: 'POST', credentials: 'same-origin', body: body })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    if (!d.ok) { if (onFail) onFail(d); return; }
+                    if (onOk) onOk(d);
+                    Issuarr.toast(d.queued ? d.note : d.joined ? 'Importing ' + title + ' next. The import that\'s running picks it up.' : 'Importing ' + title + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
+                })
+                .catch(failed);
+        }
         document.getElementById('imp-cvid-form').addEventListener('submit', function (e) {
             e.preventDefault();
             var note = document.getElementById('imp-cvid-note');
-            var body = new URLSearchParams(cvidFor.getAttribute('data-cvid'));
-            body.set('cvid', document.getElementById('imp-cvid-input').value);
-            fetch('importByCvid', { method: 'POST', credentials: 'same-origin', body: body })
-                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-                .then(function (d) {
-                    if (!d.ok) { note.textContent = d.note; note.hidden = false; return; }
-                    jQuery('#imp-cvid').dialog('close');
-                    cvidFor.disabled = true;
-                    Issuarr.toast(d.queued ? d.note : d.joined ? 'Importing ' + cvidFor.getAttribute('data-title') + ' next. The import that\'s running picks it up.' : 'Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
-                })
-                .catch(failed);
+            note.hidden = true;
+            importByCvid(cvidFor.getAttribute('data-cvid'), document.getElementById('imp-cvid-input').value, cvidFor.getAttribute('data-title'), function () {
+                jQuery('#imp-cvid').dialog('close');
+                cvidFor.disabled = true;
+            }, function (d) { note.textContent = d.note; note.hidden = false; });
         });
+
+        /* ComicVine field: type-to-filter watchlist series (id | name | year), ≥2 characters. */
+        (function setupCvPick() {
+            var drop = document.getElementById('imp-cv-drop');
+            var activeInput = null;
+            var rowsCache = [];
+            var active = -1;
+            var timer = null;
+
+            function hide() {
+                drop.hidden = true;
+                drop.innerHTML = '';
+                rowsCache = [];
+                active = -1;
+                if (activeInput) {
+                    activeInput.setAttribute('aria-expanded', 'false');
+                    activeInput.removeAttribute('aria-activedescendant');
+                }
+                activeInput = null;
+            }
+            function place() {
+                if (!activeInput || drop.hidden) return;
+                var r = activeInput.getBoundingClientRect();
+                var width = Math.max(r.width, 360);
+                var left = Math.min(r.left, window.innerWidth - width - 8);
+                drop.style.width = width + 'px';
+                drop.style.left = Math.max(8, left) + 'px';
+                drop.style.top = (r.bottom + 4) + 'px';
+            }
+            function setActive(i) {
+                active = i;
+                Array.prototype.forEach.call(drop.querySelectorAll('[data-i]'), function (el) {
+                    var on = Number(el.getAttribute('data-i')) === active;
+                    el.classList.toggle('is-active', on);
+                    el.setAttribute('aria-selected', on ? 'true' : 'false');
+                    if (on) {
+                        activeInput.setAttribute('aria-activedescendant', el.id);
+                        el.scrollIntoView({ block: 'nearest' });
+                    }
+                });
+            }
+            function render(list, q) {
+                rowsCache = list || [];
+                active = rowsCache.length ? 0 : -1;
+                if (!rowsCache.length) {
+                    drop.innerHTML = '<div class="imp-cv-empty">No watchlist series matches &ldquo;' + Issuarr.esc(q) + '&rdquo;.</div>';
+                } else {
+                    drop.innerHTML = '<div class="imp-cv-head" role="presentation"><span>ComicVine</span><span>Series</span><span>Year</span></div>' +
+                        rowsCache.map(function (s, i) {
+                            var id = '4050-' + s.id;
+                            return '<button type="button" class="imp-cv-opt" role="option" id="imp-cv-o' + i + '" data-i="' + i + '" aria-selected="' + (i === 0 ? 'true' : 'false') + '">' +
+                                '<span class="mono">' + Issuarr.esc(id) + '</span>' +
+                                '<span class="imp-cv-name">' + Issuarr.esc(s.name) + '</span>' +
+                                '<span class="mono muted">' + Issuarr.esc(s.year || '—') + '</span>' +
+                                '</button>';
+                        }).join('');
+                }
+                drop.hidden = false;
+                if (activeInput) activeInput.setAttribute('aria-expanded', 'true');
+                place();
+                if (active >= 0) setActive(active);
+            }
+            function clearDrop() {
+                drop.hidden = true;
+                drop.innerHTML = '';
+                rowsCache = [];
+                active = -1;
+                if (activeInput) {
+                    activeInput.setAttribute('aria-expanded', 'false');
+                    activeInput.removeAttribute('aria-activedescendant');
+                }
+            }
+            function looksLikeId(q) {
+                return /^(https?:\/\/\S*|(4050|4000)-\d+|\d{3,})$/i.test((q || '').trim());
+            }
+            function fetchRows() {
+                if (!activeInput) return;
+                var q = activeInput.value.trim();
+                if (q.length < 2 || looksLikeId(q)) { clearDrop(); return; }
+                var want = q.toLowerCase();
+                fetch('jump_series?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .then(function (list) {
+                        if (!activeInput || activeInput.value.trim().toLowerCase() !== want) return;
+                        render(list || [], q);
+                    })
+                    .catch(function () {});
+            }
+            function pick(i) {
+                var s = rowsCache[i];
+                if (!s || !activeInput) return;
+                var id = '4050-' + s.id;
+                var input = activeInput;
+                var auto = input.hasAttribute('data-cv-params');
+                input.value = id;
+                hide();
+                if (!auto) { input.focus(); return; }
+                input.disabled = true;
+                importByCvid(input.getAttribute('data-cv-params'), id, input.getAttribute('data-title'), null, function (d) {
+                    input.disabled = false;
+                    Issuarr.toast(d.note || 'That ComicVine ID didn\'t work.', false);
+                });
+            }
+            function onInput(input) {
+                activeInput = input;
+                clearTimeout(timer);
+                if (input.value.trim().length < 2 || looksLikeId(input.value)) { clearDrop(); return; }
+                timer = setTimeout(fetchRows, 160);
+            }
+            document.addEventListener('focusin', function (e) {
+                if (!e.target.classList || !e.target.classList.contains('imp-cv-input')) return;
+                activeInput = e.target;
+                if (e.target.value.trim().length >= 2 && !looksLikeId(e.target.value)) fetchRows();
+            });
+            document.addEventListener('input', function (e) {
+                if (e.target.classList && e.target.classList.contains('imp-cv-input')) onInput(e.target);
+            });
+            document.addEventListener('keydown', function (e) {
+                if (!e.target.classList || !e.target.classList.contains('imp-cv-input')) return;
+                var input = e.target;
+                if (e.key === 'ArrowDown' && !drop.hidden && rowsCache.length) { e.preventDefault(); setActive((active + 1) % rowsCache.length); }
+                else if (e.key === 'ArrowUp' && !drop.hidden && rowsCache.length) { e.preventDefault(); setActive((active - 1 + rowsCache.length) % rowsCache.length); }
+                else if (e.key === 'Enter') {
+                    if (!drop.hidden && active >= 0 && rowsCache[active]) { e.preventDefault(); pick(active); return; }
+                    if (!input.hasAttribute('data-cv-params') || !input.value.trim()) return;
+                    e.preventDefault();
+                    clearDrop();
+                    input.disabled = true;
+                    importByCvid(input.getAttribute('data-cv-params'), input.value.trim(), input.getAttribute('data-title'), null, function (d) {
+                        input.disabled = false;
+                        Issuarr.toast(d.note || 'That ComicVine ID didn\'t work.', false);
+                    });
+                } else if (e.key === 'Escape' && !drop.hidden) { e.preventDefault(); hide(); }
+            });
+            drop.addEventListener('mousedown', function (e) {
+                var opt = e.target.closest('[data-i]');
+                if (!opt) return;
+                e.preventDefault();
+                pick(Number(opt.getAttribute('data-i')));
+            });
+            document.addEventListener('mousedown', function (e) {
+                if (drop.hidden) return;
+                if (e.target === drop || drop.contains(e.target) || (activeInput && (e.target === activeInput || activeInput.contains(e.target)))) return;
+                hide();
+            });
+            window.addEventListener('resize', place);
+            window.addEventListener('scroll', place, true);
+        })();
+
         document.addEventListener('change', function (e) {
             if (e.target.id === 'imp-check-all') {
                 rows().forEach(function (tr) { if (!tr.hidden) tr.querySelector('[data-key]').checked = e.target.checked; });

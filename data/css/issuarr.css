@@ -874,6 +874,35 @@ a.release-title:hover { text-decoration: underline; text-underline-offset: 3px; 
 .imp-opts a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .imp-name { font-weight: 600; }
 .imp-cvid { font-size: 13px; }
+.imp-cv-field { position: relative; min-width: 7.5rem; max-width: 12rem; }
+.imp-cv-field-dialog { max-width: none; }
+.imp-cv-input {
+  width: 100%; box-sizing: border-box; margin: 0; padding: 5px 8px;
+  font: inherit; font-size: 13px; color: var(--text); background: var(--raised);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.imp-cv-input:focus { outline: none; border-color: var(--text-2); }
+.imp-cv-input:disabled { opacity: .6; }
+.imp-cv-drop {
+  position: fixed; z-index: 10050; max-height: min(320px, 50vh); overflow: auto;
+  margin: 0; padding: 4px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
+}
+.imp-cv-head, .imp-cv-opt {
+  display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 3.5rem; gap: 10px;
+  align-items: baseline; width: 100%; box-sizing: border-box; text-align: left;
+}
+.imp-cv-head {
+  padding: 6px 10px 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em;
+}
+.imp-cv-opt {
+  margin: 0; padding: 8px 10px; font: inherit; font-size: 13px; color: inherit;
+  background: transparent; border: 0; border-radius: 7px; cursor: pointer;
+}
+.imp-cv-opt:hover, .imp-cv-opt.is-active { background: color-mix(in srgb, var(--raised) 80%, var(--surface)); }
+.imp-cv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.imp-cv-empty { padding: 12px 10px; font-size: 13px; color: var(--muted); }
 .imp-file-list { margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
 .imp-file-list li { padding: 4px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 .tools #tabs > .ui-tabs-panel { border: 0 !important; background: transparent !important; }
