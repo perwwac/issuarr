@@ -955,6 +955,8 @@ class WebInterface(object):
             sortcolumn = 'b.ReleaseDate %s, b.Int_IssueNumber' % sSortDir_0
         elif iSortCol_0 == '4':
             sortcolumn = 'b.Status %s, b.Int_IssueNumber' % sSortDir_0
+        elif iSortCol_0 == '5':
+            sortcolumn = 'b.Location COLLATE NOCASE %s, b.Int_IssueNumber' % sSortDir_0
 
         #logger.info('sortcolumn: %s' % sortcolumn)
         queryline = 'SELECT a.ComicLocation as ComicLocation, b.* FROM comics a LEFT JOIN issues b ON a.ComicID = b.ComicID WHERE a.ComicID=? ORDER BY %s' % sortcolumn
@@ -1027,7 +1029,8 @@ class WebInterface(object):
                         issname = row['IssueName']
                         if issname is None:
                             issname = ''
-                        if any([sSearch.lower() in issname.lower(), sSearch.lower() in row['Issue_Number'].lower(), sSearch.lower() in row['Status'], sSearch.lower() in row['IssueDate'].lower()]):
+                        loc = (row['Location'] or '').lower()
+                        if any([sSearch.lower() in issname.lower(), sSearch.lower() in row['Issue_Number'].lower(), sSearch.lower() in row['Status'], sSearch.lower() in row['IssueDate'].lower(), sSearch.lower() in loc]):
                             filtered.append(row)
                     except Exception as e:
                         pass
