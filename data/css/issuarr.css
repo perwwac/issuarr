@@ -688,8 +688,10 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 #tabs-issues .table_wrapper { background: transparent !important; border: 0 !important; padding: 0 !important; }
 #tabs-issues table.display th:first-child, #tabs-issues table.display td:first-child { width: 28px; text-align: center !important; }
 #issue_table td:nth-child(2), #annual_table td:nth-child(3), #tabs-issues .date_edit, #tabs-issues td:nth-child(4) { white-space: nowrap; }
+#issue_table .issue-file { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-family: var(--font-mono); font-size: 12.5px; }
 @media (max-width: 600px) {
   /* Phones: drop the name and date columns so number, status and actions fit without sideways scrolling. */
+  #issue_table .issue-file { max-width: 110px; }
   #issue_table th:nth-child(3), #issue_table td:nth-child(3), #issue_table th:nth-child(4), #issue_table td:nth-child(4),
   #annual_table th:nth-child(4), #annual_table td:nth-child(4), #annual_table th:nth-child(5), #annual_table td:nth-child(5) { display: none; }
   #tabs-issues table.display th, #tabs-issues table.display td { padding: 8px 6px !important; }

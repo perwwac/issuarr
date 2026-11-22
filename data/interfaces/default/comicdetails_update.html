@@ -437,6 +437,7 @@
                                 <th id="issuename">Name</th>
                                 <th id="reldate">Cover Date</th>
                                 <th id="status">Status</th>
+                                <th id="filename">File</th>
                                 <th id="options">Options</th>
                         </tr>
                 </thead>
@@ -535,6 +536,13 @@
         // The links keep the ids the click handler above dispatches on (queueit, retryit, ... with an "a" prefix for annuals).
         var ISSUE_STATUS = { Downloaded: 'is-have', Archived: 'is-have', Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed', Ignored: 'is-ignored' };
         function escHtml(t) { return $('<div/>').text(t == null ? '' : String(t)).html(); }
+        function issueFileName(loc) {
+            if (loc == null || loc === '') return '';
+            var name = String(loc).replace(/\\/g, '/').replace(/\/+$/, '');
+            if (!name) return '';
+            var slash = name.lastIndexOf('/');
+            return slash === -1 ? name : name.slice(slash + 1);
+        }
         function issueStatus(full, withSecondary) {
             var st = full[3] || '';
             var file = (st == 'Downloaded' || st == 'Archived') && full[5] ? full[5] + (full[6] ? ' (' + full[6] + ')' : '') : '';
@@ -1570,8 +1578,18 @@
                            }
                        },
                        {
-                           "sortable": false,
+                           "sortable": true,
                            "targets": [5],
+                           "visible": true,
+                           "render": function (data,type,full){
+                               var name = issueFileName(full[5]);
+                               if (!name) return '';
+                               return '<span class="issue-file" title="' + escHtml(name) + '">' + escHtml(name) + '</span>';
+                           }
+                       },
+                       {
+                           "sortable": false,
+                           "targets": [6],
                            "visible": true,
                            "render": function (data,type,full){
                                return issueActions(full, '');
@@ -1579,7 +1597,7 @@
                        },
                        {
                           "sortable": false,
-                          "targets": [ 6 ],
+                          "targets": [ 7 ],
                           "visible": false,
                           "render":function (data,type,full) {
                                return full[5];
@@ -1587,7 +1605,7 @@
                        },
                        {
                           "sortable": false,
-                          "targets": [ 7 ],
+                          "targets": [ 8 ],
                           "visible": false,
                           "render":function (data,type,full) {
                               return full[8];
@@ -1595,7 +1613,7 @@
                        },
                        {
                           "sortable": false,
-                          "targets": [ 8 ],
+                          "targets": [ 9 ],
                           "visible": false,
                           "render":function (data,type,full) {
                               return full[4];
@@ -1640,6 +1658,7 @@
                          nRow.children[2].id = 'reldate';
                          nRow.children[3].id = 'status';
                          nRow.children[4].id = 'issueid';
+                         if (nRow.children[5]) nRow.children[5].id = 'filename';
                          //[5] = location;
                          //[6] = comicsize;
                          //[7] = comicid;
